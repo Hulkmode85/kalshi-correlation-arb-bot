@@ -30,6 +30,23 @@ from dotenv import load_dotenv
 from risk_guard import RiskManager
 
 load_dotenv()
+
+# ── Shadow Logging ────────────────────────────────────────────────────────────
+SHADOW_LOG_FILE = os.getenv("SHADOW_LOG_FILE", "shadow_log.jsonl")
+
+def shadow_log(opportunity: dict, taken: bool, reason: str = ""):
+    entry = {"ts": time.time(), "taken": taken, "reason": reason, **opportunity}
+    try:
+        with open(SHADOW_LOG_FILE, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+    except:
+        pass
+
+# ── Multi-strike: scan ALL strikes per event/series, not just one ────────────
+MULTI_STRIKE = os.getenv("MULTI_STRIKE", "true").lower() == "true"
+# When fetching markets, iterate through ALL contracts in each series/event
+# and evaluate each strike independently. No single-ticker filtering.
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("correlation_arb_bot")
 
@@ -341,12 +358,14 @@ async def main():
 
                     if arb["leg1_price"] > MAX_PRICE or arb["leg2_price"] > MAX_PRICE:
                         log.info("  Skipped — price too high")
+                        shadow_log({"bot": "correlation_arb", "leg1": arb["leg1_ticker"], "leg2": arb["leg2_ticker"], "profit": arb["profit_potential"]}, taken=False, reason="price too high")
                         continue
 
                     # Fee-aware check: profit must cover maker fees on both legs
                     fee_cost = MAKER_FEE * 100 * 2  # 2 legs, fee in cents
                     if arb["profit_potential"] <= fee_cost:
                         log.info(f"  Skipped — profit {arb['profit_potential']:.1f}¢ <= fees {fee_cost:.1f}¢")
+                        shadow_log({"bot": "correlation_arb", "leg1": arb["leg1_ticker"], "leg2": arb["leg2_ticker"], "profit": arb["profit_potential"], "fees": fee_cost}, taken=False, reason="profit <= fees")
                         continue
 
                     # Kelly: arb profit is near-certain, size by profit potential vs balance
@@ -370,6 +389,7 @@ async def main():
                         if not allowed:
                             log.info(f"[PAPER] Risk guard would block: {rg_reason}")
 
+                    shadow_log({"bot": "correlation_arb", "leg1": arb["leg1_ticker"], "leg2": arb["leg2_ticker"], "profit": arb["profit_potential"], "contracts": contracts}, taken=True)
                     if not PAPER_MODE:
                         r1 = await place_order(client, arb["leg1_ticker"], arb["leg1_side"],
                                                arb["leg1_price"], contracts)
