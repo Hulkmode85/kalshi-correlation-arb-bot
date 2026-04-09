@@ -13,6 +13,8 @@ These are pure arbitrage with no directional risk.
 
 import asyncio
 import os
+from flask import Flask, jsonify
+import threading
 import json
 import time
 import logging
@@ -285,7 +287,29 @@ async def scan_series(client: httpx.AsyncClient, series: str) -> tuple[list, lis
     return threshold_arbs, yes_no_arbs
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
+# ── Stats HTTP server ─────────────────────────────────────────────────────────
+_stats_app = Flask(__name__)
+_bot_stats = {"trades": 0, "wins": 0, "pnl": 0.0, "balance": 0.0, "start": time.time()}
+
+@_stats_app.route("/stats")
+def _stats_endpoint():
+    t = _bot_stats
+    total = t["trades"]
+    return jsonify({"bot": "kalshi-correlation-arb-bot", "paper_mode": True,
+        "balance": t["balance"], "trades": total, "wins": t["wins"],
+        "losses": total - t["wins"], "win_rate": round(t["wins"]/max(total,1), 4),
+        "pnl": t["pnl"], "uptime_hours": round((time.time()-t["start"])/3600, 2)})
+
+@_stats_app.route("/health")
+def _health_endpoint():
+    return jsonify({"status": "ok"})
+
+def _run_stats_server():
+    _stats_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+
+
 async def main():
+    threading.Thread(target=_run_stats_server, daemon=True).start()
     mode = "PAPER" if PAPER_MODE else "LIVE"
     log.info(f"=== Correlation Arb Bot starting [{mode} MODE] ===")
 
