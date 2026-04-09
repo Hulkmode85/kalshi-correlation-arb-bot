@@ -62,6 +62,7 @@ POLL_INTERVAL_SEC = int(os.getenv("POLL_INTERVAL_SEC", "600"))   # 10 min
 BET_SIZE_CENTS    = int(os.getenv("BET_SIZE_CENTS", "1000"))      # $10
 KELLY_FRACTION    = float(os.getenv("KELLY_FRACTION", "1.0"))
 MIN_ARB_CENTS     = int(os.getenv("MIN_ARB_CENTS", "8"))          # min 8¢ mispricing to trade
+MAKER_FEE         = float(os.getenv("MAKER_FEE", "0.0175"))
 MAX_PRICE         = int(os.getenv("MAX_PRICE", "95"))             # don't buy >95¢
 
 # Series with threshold-type markets (monotonic: higher threshold = lower prob)
@@ -342,6 +343,12 @@ async def main():
                         log.info("  Skipped — price too high")
                         continue
 
+                    # Fee-aware check: profit must cover maker fees on both legs
+                    fee_cost = MAKER_FEE * 100 * 2  # 2 legs, fee in cents
+                    if arb["profit_potential"] <= fee_cost:
+                        log.info(f"  Skipped — profit {arb['profit_potential']:.1f}¢ <= fees {fee_cost:.1f}¢")
+                        continue
+
                     # Kelly: arb profit is near-certain, size by profit potential vs balance
                     profit_pct = arb["profit_potential"] / max(arb["leg1_price"], arb["leg2_price"])
                     kelly_bet_cents = max(1, min(int(5000 * 100 * profit_pct * KELLY_FRACTION), BET_SIZE_CENTS * 5))
@@ -379,6 +386,12 @@ async def main():
                     log.info(f"  Buy YES @ {arb['yes_ask']}¢, Buy NO @ {arb['no_ask']}¢")
 
                     if arb["yes_ask"] > MAX_PRICE or arb["no_ask"] > MAX_PRICE:
+                        continue
+
+                    # Fee-aware check: profit must cover maker fees on both sides
+                    fee_cost = MAKER_FEE * 100 * 2  # 2 sides, fee in cents
+                    if arb["profit"] <= fee_cost:
+                        log.info(f"  Skipped — profit {arb['profit']}¢ <= fees {fee_cost:.1f}¢")
                         continue
 
                     # Kelly: arb profit is near-certain, size by profit vs balance
