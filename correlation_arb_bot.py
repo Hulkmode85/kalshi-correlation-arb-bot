@@ -27,6 +27,7 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 import httpx
 from dotenv import load_dotenv
+from risk_guard import RiskManager
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -310,6 +311,7 @@ def _run_stats_server():
 
 async def main():
     threading.Thread(target=_run_stats_server, daemon=True).start()
+    risk_manager = RiskManager(starting_balance=5000.0)
     mode = "PAPER" if PAPER_MODE else "LIVE"
     log.info(f"=== Correlation Arb Bot starting [{mode} MODE] ===")
 
@@ -341,6 +343,22 @@ async def main():
 
                     contracts = max(1, BET_SIZE_CENTS // max(arb["leg1_price"], arb["leg2_price"]))
 
+                    # Risk guard check (check leg1)
+                    if not PAPER_MODE:
+                        allowed, rg_reason, capped = risk_manager.pre_trade_check(
+                            arb["leg1_ticker"], arb["leg1_price"], contracts,
+                            arb["leg1_side"], bot_name="correlation-arb-bot")
+                        if not allowed:
+                            log.warning(f"Risk guard blocked: {rg_reason}")
+                            continue
+                        contracts = capped or contracts
+                    else:
+                        allowed, rg_reason, capped = risk_manager.pre_trade_check(
+                            arb["leg1_ticker"], arb["leg1_price"], contracts,
+                            arb["leg1_side"], bot_name="correlation-arb-bot")
+                        if not allowed:
+                            log.info(f"[PAPER] Risk guard would block: {rg_reason}")
+
                     if not PAPER_MODE:
                         r1 = await place_order(client, arb["leg1_ticker"], arb["leg1_side"],
                                                arb["leg1_price"], contracts)
@@ -360,6 +378,22 @@ async def main():
                         continue
 
                     contracts = max(1, BET_SIZE_CENTS // max(arb["yes_ask"], arb["no_ask"]))
+
+                    # Risk guard check
+                    if not PAPER_MODE:
+                        allowed, rg_reason, capped = risk_manager.pre_trade_check(
+                            arb["ticker"], arb["yes_ask"], contracts, "yes",
+                            bot_name="correlation-arb-bot")
+                        if not allowed:
+                            log.warning(f"Risk guard blocked: {rg_reason}")
+                            continue
+                        contracts = capped or contracts
+                    else:
+                        allowed, rg_reason, capped = risk_manager.pre_trade_check(
+                            arb["ticker"], arb["yes_ask"], contracts, "yes",
+                            bot_name="correlation-arb-bot")
+                        if not allowed:
+                            log.info(f"[PAPER] Risk guard would block: {rg_reason}")
 
                     if not PAPER_MODE:
                         r1 = await place_order(client, arb["ticker"], "yes",
