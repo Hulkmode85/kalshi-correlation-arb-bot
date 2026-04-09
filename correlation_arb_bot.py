@@ -60,6 +60,7 @@ KALSHI_KEY_ID     = os.getenv("KALSHI_KEY_ID", "")
 PAPER_MODE        = os.getenv("PAPER_MODE", "true").lower() == "true"
 POLL_INTERVAL_SEC = int(os.getenv("POLL_INTERVAL_SEC", "600"))   # 10 min
 BET_SIZE_CENTS    = int(os.getenv("BET_SIZE_CENTS", "1000"))      # $10
+KELLY_FRACTION    = float(os.getenv("KELLY_FRACTION", "1.0"))
 MIN_ARB_CENTS     = int(os.getenv("MIN_ARB_CENTS", "8"))          # min 8¢ mispricing to trade
 MAX_PRICE         = int(os.getenv("MAX_PRICE", "95"))             # don't buy >95¢
 
@@ -341,7 +342,10 @@ async def main():
                         log.info("  Skipped — price too high")
                         continue
 
-                    contracts = max(1, BET_SIZE_CENTS // max(arb["leg1_price"], arb["leg2_price"]))
+                    # Kelly: arb profit is near-certain, size by profit potential vs balance
+                    profit_pct = arb["profit_potential"] / max(arb["leg1_price"], arb["leg2_price"])
+                    kelly_bet_cents = max(1, min(int(5000 * 100 * profit_pct * KELLY_FRACTION), BET_SIZE_CENTS * 5))
+                    contracts = max(1, kelly_bet_cents // max(arb["leg1_price"], arb["leg2_price"]))
 
                     # Risk guard check (check leg1)
                     if not PAPER_MODE:
@@ -377,7 +381,10 @@ async def main():
                     if arb["yes_ask"] > MAX_PRICE or arb["no_ask"] > MAX_PRICE:
                         continue
 
-                    contracts = max(1, BET_SIZE_CENTS // max(arb["yes_ask"], arb["no_ask"]))
+                    # Kelly: arb profit is near-certain, size by profit vs balance
+                    profit_pct = arb["profit"] / (arb["yes_ask"] + arb["no_ask"])
+                    kelly_bet_cents = max(1, min(int(5000 * 100 * profit_pct * KELLY_FRACTION), BET_SIZE_CENTS * 5))
+                    contracts = max(1, kelly_bet_cents // max(arb["yes_ask"], arb["no_ask"]))
 
                     # Risk guard check
                     if not PAPER_MODE:
