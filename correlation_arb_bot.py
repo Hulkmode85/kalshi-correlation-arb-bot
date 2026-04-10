@@ -73,14 +73,14 @@ def check_regime(price: float) -> str:
 
 
 # ── Early Exit Logic ─────────────────────────────────────────────────────────
-EARLY_EXIT_THRESHOLD = float(os.getenv("EARLY_EXIT_THRESHOLD", "0.93"))
+EARLY_EXIT_THRESHOLD = float(os.getenv("EARLY_EXIT_THRESHOLD", "0.99"))
 
 def should_early_exit(current_price_cents: float) -> bool:
     """Exit position early at 93c+ to lock in profit instead of holding to settlement."""
     return current_price_cents >= EARLY_EXIT_THRESHOLD * 100
 
 # ── Circuit Breakers ─────────────────────────────────────────────────────────
-CONSECUTIVE_LOSS_PAUSE = int(os.getenv("CONSECUTIVE_LOSS_PAUSE", "3"))
+CONSECUTIVE_LOSS_PAUSE = int(os.getenv("CONSECUTIVE_LOSS_PAUSE", "5"))
 DAILY_DRAWDOWN_PAUSE_PCT = float(os.getenv("DAILY_DRAWDOWN_PAUSE_PCT", "0.05"))
 
 _consecutive_losses = 0
@@ -96,7 +96,7 @@ def check_circuit_breaker() -> bool:
     if _consecutive_losses >= CONSECUTIVE_LOSS_PAUSE:
         return True
     # Use PAPER_BALANCE if available, else 5000
-    _balance = globals().get("PAPER_BALANCE", 5000)
+    _balance = globals().get("PAPER_BALANCE", 2000)
     if _daily_pnl < -DAILY_DRAWDOWN_PAUSE_PCT * _balance:
         return True
     return False
@@ -143,7 +143,7 @@ KALSHI_KEY_ID     = os.getenv("KALSHI_KEY_ID", "")
 PAPER_MODE        = os.getenv("PAPER_MODE", "true").lower() == "true"
 POLL_INTERVAL_SEC = int(os.getenv("POLL_INTERVAL_SEC", "600"))   # 10 min
 BET_SIZE_CENTS    = int(os.getenv("BET_SIZE_CENTS", "1000"))      # $10
-KELLY_FRACTION    = float(os.getenv("KELLY_FRACTION", "0.5"))
+KELLY_FRACTION    = float(os.getenv("KELLY_FRACTION", "0.75"))
 MIN_ARB_CENTS     = int(os.getenv("MIN_ARB_CENTS", "8"))          # min 8¢ mispricing to trade
 MAKER_FEE         = float(os.getenv("MAKER_FEE", "0.0175"))
 MAX_PRICE         = int(os.getenv("MAX_PRICE", "95"))             # don't buy >95¢
