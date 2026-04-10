@@ -42,6 +42,44 @@ def shadow_log(opportunity: dict, taken: bool, reason: str = ""):
     except:
         pass
 
+
+# ── Virtual Portfolio Testing ─────────────────────────────────────────────
+VIRTUAL_PORTFOLIO_FILE = os.getenv("VIRTUAL_PORTFOLIO_FILE", "virtual_portfolios.jsonl")
+
+VIRTUAL_PORTFOLIOS = [
+    {"name": "aggressive", "kelly": 1.0, "min_edge": 0.01, "early_exit": 0.99},
+    {"name": "moderate", "kelly": 0.75, "min_edge": 0.02, "early_exit": 0.93},
+    {"name": "conservative", "kelly": 0.5, "min_edge": 0.03, "early_exit": 0.90},
+    {"name": "original", "kelly": 1.0, "min_edge": 0.02, "early_exit": 0.99},
+]
+
+def evaluate_virtual_portfolios(opportunity: dict):
+    """Evaluate what each virtual portfolio would do with this opportunity."""
+    import json, time as _time
+    edge = opportunity.get("edge", 0)
+    price = opportunity.get("price", 0)
+    results = []
+    for vp in VIRTUAL_PORTFOLIOS:
+        would_trade = edge >= vp["min_edge"]
+        would_exit_early = price >= vp["early_exit"] * 100
+        results.append({
+            "portfolio": vp["name"],
+            "would_trade": would_trade,
+            "would_exit_early": would_exit_early,
+            "kelly": vp["kelly"],
+            "min_edge": vp["min_edge"],
+        })
+    entry = {
+        "ts": _time.time(),
+        "opportunity": opportunity,
+        "portfolios": results,
+    }
+    try:
+        with open(VIRTUAL_PORTFOLIO_FILE, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+    except:
+        pass
+
 # ── Multi-strike: scan ALL strikes per event/series, not just one ────────────
 
 # ─── Regime Detection — pause trading during extreme volatility ────────────
@@ -425,6 +463,7 @@ async def main():
                     if arb["leg1_price"] > MAX_PRICE or arb["leg2_price"] > MAX_PRICE:
                         log.info("  Skipped — price too high")
                         shadow_log({"bot": "correlation_arb", "leg1": arb["leg1_ticker"], "leg2": arb["leg2_ticker"], "profit": arb["profit_potential"]}, taken=False, reason="price too high")
+                        evaluate_virtual_portfolios({"bot": "correlation_arb", "leg1": arb["leg1_ticker"], "leg2": arb["leg2_ticker"], "profit": arb["profit_potential"]})
                         continue
 
                     # Fee-aware EV gate — skip negative-EV trades after fees
@@ -434,6 +473,7 @@ async def main():
                     if ev_after_fees <= 0:
                         log.info(f"  Skipped — profit {arb['profit_potential']:.1f}¢ <= fees {fee_cost:.1f}¢")
                         shadow_log({"bot": "correlation_arb", "leg1": arb["leg1_ticker"], "leg2": arb["leg2_ticker"], "profit": arb["profit_potential"], "fees": fee_cost, "ev_after_fees": ev_after_fees}, taken=False, reason=f"negative EV after {PLATFORM_FEE*100}% fee")
+                        evaluate_virtual_portfolios({"bot": "correlation_arb", "leg1": arb["leg1_ticker"], "leg2": arb["leg2_ticker"], "profit": arb["profit_potential"], "fees": fee_cost, "ev_after_fees": ev_after_fees})
                         continue
 
                     # Kelly: arb profit is near-certain, size by profit potential vs balance
@@ -462,8 +502,10 @@ async def main():
                     if regime == "CRASH":
                         log.warning("REGIME CRASH on kalshi_correlation_arb_bot — skipping trade")
                         shadow_log({"bot": "kalshi_correlation_arb_bot", "regime": regime}, taken=False, reason="crash regime")
+                        evaluate_virtual_portfolios({"bot": "kalshi_correlation_arb_bot", "regime": regime})
                         continue
                     shadow_log({"bot": "correlation_arb", "leg1": arb["leg1_ticker"], "leg2": arb["leg2_ticker"], "profit": arb["profit_potential"], "contracts": contracts}, taken=True)
+                    evaluate_virtual_portfolios({"bot": "correlation_arb", "leg1": arb["leg1_ticker"], "leg2": arb["leg2_ticker"], "profit": arb["profit_potential"], "contracts": contracts})
                     if not PAPER_MODE:
                         r1 = await place_order(client, arb["leg1_ticker"], arb["leg1_side"],
                                                arb["leg1_price"], contracts)
